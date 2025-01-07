@@ -1,0 +1,778 @@
+---
+output:
+  pdf_document:
+    number_sections: false
+    toc: false
+    latex_engine: xelatex
+geometry: a4paper
+fontsize: 12pt
+header-includes:
+  - \usepackage{titling} # Manage title spacing
+  - \setlength{\droptitle}{-1cm} # Reduce vertical space for the title
+  - \pagenumbering{gobble} # Disable page numbering on the title page
+  - \usepackage{placeins} # Prevent floats (figures/tables) from escaping sections
+  - \usepackage{float} # Additional float placement control (e.g., [H] specifier)
+  - \usepackage{caption} # Better caption control for figures and tables
+title: "" # Suppress automatic title generation
+subtitle: "" # Suppress automatic subtitle generation
+bibliography: "C:/Users/Steven/OneDrive/2_YEAR_1_SEMESTER/SA2_statistical_analysis_2/BLUE_ZONES/sources_v2.bib" # Path to .bib file
+link-citations: true # Enable clickable links in citations
+nocite: "@*" # Include all references in the bibliography, even if not cited
+pandoc_args: ["--metadata=biblio-title=", "--filter=pandoc-citeproc"]
+lua-filters:
+  - suppress-bibliography.lua
+---
+
+\begin{center}
+\vspace*{1cm} % Reduced spacing above the university name
+
+{\Large \textbf{Comenius University in Bratislava}}
+
+\vspace{2cm} % Reduced spacing below the university name
+
+{\LARGE \textbf{Project Bluezones Europe}}\\[0.3cm]
+{\Large \textit{Statistical Validation of Buettner's (2016) Assumptions in European Context}}\\
+
+\vspace{2cm} % Reduced spacing to compact layout
+
+{\large \textbf{Stefan Vach}}\\[0.5cm]
+{\large \textit{Statistical Analysis II}}\\[0.3cm]
+{\large \textit{Lecturer: Ing. Jakub Szabó, PhD.}}\\[1.5cm]
+
+{\large \textbf{January 31, 2025}}
+
+\end{center}
+
+\section*{Abstract}
+\noindent
+This study investigates the social and psychological determinants of life expectancy across selected European countries, focusing on variables identified by David Buettner's Blue Zones research, including social connections, sense of purpose, stress levels, family support, caloric intake, physical activity, and moderate alcohol consumption. Using linear regression analysis, we examine both direct effects and interactions among these predictors, such as gender with family support and alcohol consumption with caloric intake, to assess their combined influence on longevity. Findings reveal distinct patterns that underscore the importance of integrating social, psychological, and lifestyle factors for understanding and promoting long life expectancy. These insights contribute to public health interventions by identifying key areas for enhancing individual and community well-being.
+
+```{r setup, include=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r libraries.load, echo=FALSE, message=FALSE, warning=FALSE}
+rm(list = ls())
+
+library(survey)
+library(tidyverse)
+library(rio)
+library(broom)
+library(estimatr)
+library(jtools)
+library(margins)
+library(bibtex)
+library(nortest)
+library(car)
+library(lmtest)
+library(sandwich)
+library(clubSandwich)
+library(nortest)
+library(GGally)
+library(ggplot2)
+library(kableExtra)
+library(interactions)
+library(stargazer)
+library(tinytex)
+library(lme4)
+library(patchwork)
+library(gridExtra)
+
+setwd("C:/Users/Steven/OneDrive/2_YEAR_1_SEMESTER/SA2_statistical_analysis_2/BLUE_ZONES")
+```
+
+```{r new.data.load, echo=FALSE, message=FALSE, warning=FALSE}
+# only this is necessary step now, I can skip others in data.load, indexes.creation and data.aggregation sections
+#write.csv(final_data,"C:/Users/Steven/OneDrive/2_YEAR_1_SEMESTER/SA2_statistical_analysis_2/BLUE_ZONES/final_data.csv", row.names = FALSE)
+
+
+final_data <- read.csv("final_data.csv")
+```
+
+```{r old.data.load, echo=FALSE, message=FALSE, warning=FALSE}
+
+# ##### NOT NECESSARY ANYMORE!!!
+# 
+# 
+# ess11_data <- read.csv("ESS11.csv")
+# ess7_data <- read.csv("ESS7.csv")
+# un_lifexp_data <- read.csv("UN_World Population Prospects 2024.csv")
+# 
+# ess11_data <- ess11_data %>%
+#   rename(weight = weighta)
+# 
+# #add wave of ESS info
+# ess11_data <- ess11_data %>%
+#   mutate(Year = 2023)
+# ess7_data <- ess7_data %>%
+#   mutate(Year = 2014)
+# 
+# countries_ess11 <- unique(ess11_data$cntry)
+# countries_ess7 <- unique(ess7_data$cntry)
+# 
+# # All unique countries
+# all_countries <- union(countries_ess11, countries_ess7)
+# 
+# # Corrected print statements
+# print(paste("ESS11:", paste(countries_ess11, collapse = ", ")))
+# print(paste("ESS7:", paste(countries_ess7, collapse = ", ")))
+# print(paste("All countries:", paste(all_countries, collapse = ", ")))
+
+# common_countries <- intersect(countries_ess11, countries_ess7) # all common countries
+# #print(common_countries)
+# ess7_filtered <- ess7_data %>%
+#   filter(!(cntry %in% common_countries))
+# 
+# #print(length(all_countries))
+# #print(all_countries)
+# #print(length(common_countries))
+# 
+# ess_combined <- bind_rows(ess7_filtered, ess11_data)
+# 
+# variables_of_interest <- c(
+#   "etfruit", "eatveg",               # Diet
+#   "dosprt",                          # Physical activity
+#   "sclmeet", "inprdsc",              # Social Connections
+#   "stflife", "enjlf",                # Sense of Purpose
+#   "alcfreq",                         # Moderate Alcohol Consumption
+#   "fltdpr", "flteeff", "slprl",      # Stress Reduction
+#   "rlgatnd", "pray",                 # Spirituality or Religion
+#   "hlpfmhr",                         # Family Support
+#   "weight", "height",                # Caloric Intake
+#   "gndr", "Year", "cntry",           # Additional variables
+#   "pweight", "dweight"               # Weights
+# )
+# 
+# 
+# # Filtering and applying weights
+# ess_filtered_combined <- ess_combined %>%
+#   select(all_of(variables_of_interest)) %>% 
+#   filter(
+#     etfruit >= 1 & etfruit <= 7,
+#     eatveg >= 1 & eatveg <= 7,
+#     dosprt >= 0 & dosprt <= 7,
+#     sclmeet >= 1 & sclmeet <= 7,
+#     inprdsc >= 0 & inprdsc <= 6,
+#     stflife >= 0 & stflife <= 10,
+#     enjlf >= 1 & enjlf <= 4,
+#     alcfreq >= 1 & alcfreq <= 7,
+#     fltdpr >= 1 & fltdpr <= 4,
+#     flteeff >= 1 & flteeff <= 4,
+#     slprl >= 1 & slprl <= 4,
+#     rlgatnd >= 1 & rlgatnd <= 7,
+#     pray >= 1 & pray <= 7,
+#     (hlpfmhr >= 1 & hlpfmhr <= 6 | hlpfmhr == 55),
+#     weight >= 15 & weight <= 250,
+#     height >= 110 & height <= 220
+#   ) %>%
+#   ungroup()  # Reset row-wise calculations
+# 
+# #  REMOVE NAs
+# ess_filtered_combined <- ess_filtered_combined %>%
+#   filter(across(all_of(c("etfruit", "eatveg", "sclmeet", "inprdsc", 
+#                          "stflife", "enjlf", "alcfreq", "fltdpr", "flteeff", "slprl", "rlgatnd", "pray", "hlpfmhr")), ~ !is.na(.)))
+```
+
+```{r indexes.creation, echo=FALSE, message=FALSE, warning=FALSE}
+# ### plant_diet
+# # Reverse the scale for etfruit and eatveg
+# ess_filtered_combined <- ess_filtered_combined %>%
+#   mutate(
+#     etfruit_rev = 8 - etfruit,  # Reverse scale: 1 -> 7, 2 -> 6, ..., 7 -> 1
+#     eatveg_rev = 8 - eatveg    # Reverse scale for eatveg
+#   ) %>%
+#   rowwise() %>%
+#   mutate(
+#     plant_diet = mean(c(etfruit_rev, eatveg_rev), na.rm = TRUE)  # Unweighted mean
+#   ) %>%
+#   ungroup()
+# 
+# ### dosprt
+# # No changes needed (already good without weighting)
+# 
+# ### soc_con
+# # Calculate the Social Connections index without weights
+# ess_filtered_combined <- ess_filtered_combined %>%
+#   rowwise() %>%
+#   mutate(
+#     soc_con = mean(c(sclmeet, inprdsc), na.rm = TRUE)  # Unweighted mean
+#   ) %>%
+#   ungroup()
+# 
+# ### sen_pur
+# # Calculate the Sense of Purpose index without weights
+# ess_filtered_combined <- ess_filtered_combined %>%
+#   rowwise() %>%
+#   mutate(
+#     sen_pur = mean(c(stflife, enjlf), na.rm = TRUE)  # Unweighted mean
+#   ) %>%
+#   ungroup()
+# 
+# ### alcfrq
+# # Rescale alcfreq directly (no weights applied)
+# ess_filtered_combined <- ess_filtered_combined %>%
+#   mutate(
+#     alcfrq = case_when(
+#       alcfreq == 1 ~ 1,
+#       alcfreq == 2 ~ 3,
+#       alcfreq == 3 ~ 5,
+#       alcfreq == 4 ~ 7,
+#       alcfreq == 5 ~ 6,
+#       alcfreq == 6 ~ 4,
+#       alcfreq == 7 ~ 2,
+#       TRUE ~ NA_real_  # Handle missing values
+#     )
+#   )
+# 
+# ### stress_red
+# # Calculate Stress Reduction index without weights
+# ess_filtered_combined <- ess_filtered_combined %>%
+#   rowwise() %>%
+#   mutate(
+#     stress_red = mean(c(fltdpr, flteeff, slprl), na.rm = TRUE)  # Unweighted mean
+#   ) %>%
+#   ungroup()
+# 
+# ### relig
+# # Reverse the scales for rlgatnd and pray
+# ess_filtered_combined <- ess_filtered_combined %>%
+#   mutate(
+#     rlgatnd_rev = 8 - rlgatnd  # Reverse scale: 1 -> 7, 2 -> 6, ..., 7 -> 1
+#   ) %>%
+#   rowwise() %>%
+#   mutate(
+#     relig = mean(c(rlgatnd_rev, pray), na.rm = TRUE)  # Unweighted mean
+#   ) %>%
+#   ungroup()
+# 
+# ### fam_sup
+# # Shift hlpfmhr values (weights excluded)
+# ess_filtered_combined <- ess_filtered_combined %>%
+#   mutate(
+#     fam_sup = case_when(
+#       hlpfmhr == 55 ~ 1,          # "55" becomes 1 on the new scale
+#       hlpfmhr >= 1 & hlpfmhr <= 6 ~ hlpfmhr + 1,  # Shift other values up by 1
+#       TRUE ~ NA_real_             # Handle missing values
+#     )
+#   )
+# 
+# ### bmi
+# # BMI calculation (weights excluded)
+# ess_filtered_combined <- ess_filtered_combined %>%
+#   mutate(
+#     bmi = weight / (height / 100)^2  # Correct BMI formula
+#   )
+# 
+# 
+# ### REMOVE NAs
+# final_data <- ess_filtered_combined
+
+```
+
+```{r data.aggregation, echo=FALSE, message=FALSE, warning=FALSE}
+
+# indexes <- c("plant_diet", "soc_con", "sen_pur", "alcfrq", 
+#              "stress_red", "relig", "fam_sup", "bmi")
+# 
+# # Aggregate final_data for averages of predictors
+# ess_aggregated <- final_data %>%
+#   group_by(cntry, Year) %>%
+#   summarise(across(all_of(indexes), ~ mean(.x, na.rm = TRUE), .names = "avg_{.col}")) %>%
+#   ungroup()
+# 
+# # Prepare life expectancy data for merging
+# un_lifexp_prepared <- un_lifexp_data %>%
+#   select(ISO2, Year, bothsex_le) %>%  # Select relevant columns
+#   rename(life_expectancy = bothsex_le)  # Rename for consistency
+# 
+# # Merge aggregated data with life expectancy data
+# final_data <- ess_aggregated %>%
+#   left_join(un_lifexp_prepared, by = c("cntry" = "ISO2", "Year" = "Year"))
+# 
+# # Exclude countries that are common in ESS7 and ESS11 but keep only their ESS11 entries
+# #final_cntry_distinct_data <- final_data %>%
+# #  filter(!(cntry %in% common_countries & Year == 2014))
+# 
+# final_data <- final_data %>%
+#   mutate(stress_purpose = rowMeans(select(., avg_sen_pur, avg_stress_red), na.rm = TRUE)) %>%
+#   select(-avg_sen_pur, -avg_stress_red)
+# 
+# ## ADD WEIGHTS into final_data for LM weight-including purposes
+# # Aggregate weights from ess_combined_filtered per country
+# country_weights <- ess_filtered_combined %>%
+#   group_by(cntry) %>%
+#   summarize(
+#     avg_pweight = mean(pweight, na.rm = TRUE),  # Average pweight per country
+#     avg_dweight = mean(dweight, na.rm = TRUE)   # Average dweight per country
+#   )
+# 
+# # Merge weights into final_data by cntry
+# final_data <- final_data %>%
+#   left_join(country_weights, by = "cntry")
+# 
+# # Optional: Calculate combined weights in final_data
+# final_data <- final_data %>%
+#   mutate(
+#     combined_weight = avg_pweight * avg_dweight  # Combined weight per country
+#   )
+```
+
+# Introduction
+
+This project examines the relationship between key psychological, social, and lifestyle factors and life expectancy across selected European countries. Drawing on the foundational "Blue Zones" research by David Buettner [@buettner_blue_2016], this study investigates the influence of social connections, sense of purpose, stress reduction, family support, caloric moderation, spirituality, physical activity, plant-based eating, and moderate alcohol consumption on longevity within a European context.
+
+Understanding these relationships is critical, particularly in the context of Europe’s aging population. By analyzing how specific factors impact life expectancy, this research provides actionable insights that can inform public health strategies and individual choices aimed at fostering longer, healthier lives. Insights gained from this study could guide policymakers and healthcare providers in developing targeted interventions to enhance wellness and resilience among older adults, potentially alleviating healthcare challenges linked to aging.
+
+This study integrates Buettner’s predictors with data from European countries to explore their relevance and impact in a distinct cultural and economic setting. Using robust linear regression analysis, it highlights the most significant predictors of longevity and examines interactions between them. This approach provides a nuanced understanding of how these factors collectively influence health outcomes, moving beyond isolated predictors to a holistic perspective.
+
+By addressing the cross-cultural applicability of Buettner’s predictors, this research fills a gap in existing literature. It aims to inform academic discussions and practical applications in public health, ultimately supporting more effective approaches to improving long-term well-being in diverse European populations.
+
+\newpage
+
+# Literature Review
+
+Dan Buettner's exploration of "Blue Zones" [@buettner_blue_2016] emphasizes lifestyle factors such as plant-centered diets, movement, social networks, and life purpose as crucial for longevity, drawing from observations in high-longevity regions like Okinawa and Sardinia. These findings align with [@kitsera_importance_nodate], whose study on longevity in Ukraine highlights consistent physical activity and plant-based diets as critical, suggesting that core lifestyle factors transcend cultural and geographical contexts. Both studies underscore the role of social connections and low-stress environments in promoting long life, linking the Blue Zones framework with regional studies to illustrate the universality of these determinants.
+
+Building on these insights, Herpich et al. [@herpich_role_2022] provide a nuanced understanding of the health benefits of plant-based diets (PBDs). Their narrative review highlights lower mortality rates among vegetarians and vegans compared to individuals whose diets regularly include meat. PBDs are associated with improved metabolic and inflammatory profiles and a reduced incidence of cardiovascular diseases, all contributing to better health and longevity. However, Herpich et al. also point out limitations, such as the lower protein content of PBDs, which may reduce their health-promoting effects in adults over 65 who require higher protein intake. While the specific mechanisms of how PBDs extend life span remain unclear, the modulation of the gut microbiome and protein restriction are posited as key factors. This underscores the importance of PBDs as a multifaceted contributor to health and longevity, complementing Buettner’s observations on plant-centered diets in the Blue Zones [@buettner_blue_2016].
+
+Giacosa et al. [@giacosa_mediterranean_2016] expand on the dietary determinants of longevity by highlighting the Mediterranean diet's emphasis on moderate wine consumption, abundant plant foods, olive oil, and minimal red meat intake. Their review identifies moderate red wine consumption as a potential contributor to longevity due to bioactive compounds like resveratrol, which exhibit antioxidant, anti-inflammatory, and cardioprotective properties. The “Mediterranean way of drinking,” characterized by regular, moderate wine consumption during meals, reduces cardiovascular disease risk and supports healthy aging without significantly increasing cancer risk. These findings align with the broader literature on plant-based diets and longevity, reinforcing the importance of dietary patterns rich in bioactive compounds.
+
+Physical activity also emerges as a critical determinant of longevity. Paffenbarger et al. [@paffenbarger_physical_1986] demonstrate a clear inverse relationship between physical activity levels and all-cause mortality in their longitudinal study of college alumni. Regular moderate to vigorous exercise was associated with significant reductions in mortality risk, highlighting physical activity's protective effects against chronic diseases and its role in healthy aging. These findings support Buettner’s observations of consistent movement as a lifestyle factor in the Blue Zones and align with kitsera_importance_nodate's emphasis on physical activity in promoting longevity across diverse contexts [@kitsera_importance_nodate].
+
+Economic and structural factors also emerge as critical in life expectancy research. Monsef and Mehrjardi [@monsef_determinants_2015] show how economic stability and urbanization positively influence longevity, while Roffia et al. [@roffia_determinants_2023] extend this argument, emphasizing the role of accessible healthcare and equitable health expenditures in improving life expectancy across OECD countries. These findings connect to Siegel et al. [@siegel_social_2022], who demonstrate that socioeconomic factors, such as education and household income, play a more significant role in longevity than healthcare access in Germany. Together, these studies suggest that while economic and social infrastructure is foundational to health, its impact is mediated by individual and regional disparities in education and resource allocation.
+
+The role of spirituality and social cohesion emerges in studies like Dominguez et al. [@dominguez_link_2024], which links spiritual practices to reduced stress and enhanced social support, and Rose [@rose_social_1964], which highlights the stabilizing influence of family environments and marital bonds on mental and physical health. Both align with Buettner's emphasis on purpose-driven living and faith-based communities in Blue Zones [@buettner_blue_2016], reinforcing the interplay between social and psychological well-being as critical predictors of life expectancy.
+
+
+### Interaction; alcohol consumption - caloric intake
+
+Lifestyle choices, such as diet, physical activity, and substance use, further illustrate complex relationships with longevity. Paffenbarger and Lee [@paffenbarger_physical_1996] demonstrate the protective role of regular physical activity against chronic diseases, complementing Rizza et al.'s [@rizza_what_2014] findings on calorie restriction's benefits for metabolic health. These insights align with [@kitsera_importance_nodate], who identified low-calorie, nutrient-dense diets as central to longevity in Ukraine. However, when intersecting with alcohol consumption, these relationships become nuanced. Cockerham [@cockerham_social_1997] highlights alcohol abuse's detrimental effects in Eastern Europe, while Rizza et al. [@rizza_what_2014] and [@buettner_blue_2016] suggest moderate alcohol consumption may support longevity when combined with balanced dietary habits. This complexity highlights the importance of examining interaction effects, such as the interplay between caloric intake and alcohol consumption, to understand compounded impacts on health outcomes.
+
+Finally, the findings on family support and social networks in Rose [@rose_social_1964] and Siegel et al. [@siegel_social_2022] raise questions about gendered experiences of family dynamics. Women often serve as primary providers of family support, while men may benefit differently from family structures, a distinction that warrants exploration in studies of family support and longevity. Such interactions could reveal how social roles mediate the impact of family relationships on health outcomes.
+
+By connecting these studies, a more integrated perspective emerges, demonstrating that life expectancy determinants are not isolated factors but interdependent influences shaped by socioeconomic, psychological, and lifestyle variables. This approach aligns with the research gap identified in this study, which seeks to examine the compounded effects of lifestyle and social factors on longevity.
+
+### Research Question
+
+What is the relationship between social connections, sense of purpose, stress levels, and family support on life expectancy in selected European countries?
+
+### Hypotheses
+
+#### **General Hypothesis:**
+Adherence to lifestyle factors such as a plant-based diet, social connections, sense of purpose, and moderate alcohol consumption will be positively associated with life expectancy, while higher body mass index (BMI) and immoderate alcohol consumption frequency will exhibit negative associations.
+
+#### **Interaction Hypothesis:**
+The interaction between moderate alcohol consumption frequency and BMI will significantly influence life expectancy, such that the negative impact of immoderate alcohol consumption on life expectancy will be attenuated at higher BMI levels.
+
+\newpage
+
+# Methodology
+## Datasets used
+The study utilizes aggregated data from two European Social Survey (ESS) datasets (ESS7 and ESS11) and the 2024 Revision of World Population Prospects for life expectancy. ESS11 includes data from Austria, Switzerland, Germany, Finland, the United Kingdom, Croatia, Hungary, Ireland, Lithuania, the Netherlands, Norway, Slovenia, and Slovakia. ESS7, on the other hand, covers Austria, Belgium, Switzerland, the Czech Republic, Germany, Denmark, Estonia, Spain, Finland, France, the United Kingdom, Hungary, Ireland, Israel, Lithuania, the Netherlands, Norway, Poland, Portugal, Sweden, and Slovenia.
+
+## Data transformation
+The independent variables were operationalised based on the Blue Zones framework. If indexes were created, mean of the values was used as an index value. Diet was measured through fruit and vegetable consumption (etfruit, eatveg); physical activity through sports participation (dosprt); social connections via frequency of social interactions (sclmeet) and number of confidants (inprdsc); sense of purpose through life satisfaction (stflife) and enjoyment of life (enjlf); moderate alcohol consumption by frequency (alcfreq); stress reduction by depression (fltdpr), effort (flteeff), and restless sleep (slprl); spirituality through religious attendance (rlgatnd) and prayer (pray); family support by hours helping family members (hlpfmhr); and caloric intake using Body Mass Index (BMI). The dependent variable, life expectancy, was sourced from the UN dataset for its reliability and cross-national consistency. Dataset was an aggregation of means of the index values per country.
+
+## Model Description
+The statistical analysis employed a multinomial linear regression model, which is well-suited for examining the direct associations between life expectancy and a range of predictors, aligning with the approach used by [@rizza_what_2014] to analyze interaction effects and direct influences. The model was fitted using the `lm` function from base R, and robust standard errors were computed using the `vcovHC` function from the `sandwich` package with the HC1 adjustment, which is particularly suited for small sample sizes. This approach improves the reliability of standard error estimates without requiring additional assumptions about the data structure. To enhance the model's interpretability, measures were taken to address multicollinearity among predictors. Specifically, the variable `avg_fam_sup` was excluded due to its high correlation with `avg_bmi` (r=0.989). Furthermore, the variables `avg_stress_red` and `avg_sen_pur`, which were strongly correlated (r=0.854), were combined into a composite variable, "stress_purpose," to improve model parsimony and clarity.
+
+#### Clustering, survey weights, fixed / random effects:
+Clustering adjustments and survey weights, typically used to account for individual-level sampling probabilities and within-group correlation, are less relevant in this context, as the analysis is already based on aggregated country-level data.
+
+## Exploratory Data Analysis
+The data was analyzed for distributions, variability, and outliers. Descriptive statistics indicate that most predictors exhibit normal or near-normal distributions. Stress and purpose are tightly clustered. Life expectancy has a mean of 80.7 years, ranging from 76.03 to 83.95, with minimal outliers. Visualizations, including histograms and density plots, confirmed these trends, highlighting normal distributions for most variables, while some, like family support, showed slight skewness.
+
+
+```{r eda.code, echo=FALSE, message=FALSE, warning=FALSE, fig.pos='H', fig.width=6, fig.height=3.5}
+selected_vars <- c("avg_plant_diet", "avg_soc_con", "avg_alcfrq", "avg_relig", "avg_fam_sup", "avg_bmi", "life_expectancy", "stress_purpose")
+
+#  Reshape data to long format
+long_data <- final_data %>%
+  select(all_of(selected_vars)) %>%
+  pivot_longer(cols = everything(), names_to = "variable", values_to = "value")
+
+
+# Define the custom color palette
+custom_colors <- c("#8fd7d7", "#00b0be", "#ff8ca1", "#f45f74", 
+                   "#bdd373", "#98c127", "#fffaf3", "#ffb255")
+
+## Here the binwidths are manually set, since a proportion of SD didnt work well
+custom_binwidths <- list(
+  avg_bmi = 2,       
+  avg_plant_diet = 0.1,
+  avg_soc_con = 0.2,
+  avg_alcfrq = 0.5,
+  avg_relig = 0.1,
+  avg_fam_sup = 0.1,
+  life_expectancy = 1,
+  stress_purpose = 0.2
+)
+
+# Added a custom binwidth column to the long_data dataset
+long_data <- long_data %>%
+  mutate(binwidth = case_when(
+    variable == "avg_bmi" ~ custom_binwidths$avg_bmi,
+    variable == "avg_plant_diet" ~ custom_binwidths$avg_plant_diet,
+    variable == "avg_soc_con" ~ custom_binwidths$avg_soc_con,
+    variable == "avg_alcfrq" ~ custom_binwidths$avg_alcfrq,
+    variable == "avg_relig" ~ custom_binwidths$avg_relig,
+    variable == "avg_fam_sup" ~ custom_binwidths$avg_fam_sup,
+    variable == "life_expectancy" ~ custom_binwidths$life_expectancy,
+    variable == "stress_purpose" ~ custom_binwidths$stress_purpose,
+    TRUE ~ 1 # Default binwidth
+  ))
+
+# Created the faceted histogram with custom binwidths
+ggplot(long_data, aes(x = value)) +
+  geom_histogram(
+    aes(binwidth = binwidth),
+    fill = custom_colors[1],
+    color = custom_colors[2],
+    alpha = 0.7
+  ) +
+  facet_wrap(~variable, scales = "free", labeller = label_both) +
+  labs(
+    title = "Figure 1: Faceted Histograms of Predictors Values Frequencies",
+    x = "Value",
+    y = "Frequency"
+  ) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(face = "bold"),
+    panel.background = element_rect(fill = "white", color = NA), # Background color
+    plot.background = element_rect(fill = "white", color = NA), # Outer background
+    panel.grid.major = element_line(color = custom_colors[8]), # Major gridlines
+    panel.grid.minor = element_line(color = custom_colors[8], linetype = "dotted") # Minor gridlines
+  )
+
+#summary(final_data)
+```
+```{r linear.model, echo=FALSE, message=FALSE}
+# Step 1: Fit the linear model without survey weights and clustering
+model <- lm(
+  life_expectancy ~ avg_plant_diet + avg_soc_con + stress_purpose + avg_alcfrq + avg_relig + avg_bmi,
+  data = final_data
+)
+
+# Step 2: Summarize the model
+#summary(model)
+
+robust_se <- vcovHC(model, type = "HC1")
+
+# Step 3: Summarize the model with robust standard errors
+summary_robust <- coeftest(model, vcov = robust_se)
+
+# Display the summary with robust standard errors
+#print(summary_robust)
+```
+
+\newpage
+
+# Results
+
+The intercept (61.24, p = 0.046) represents the baseline life expectancy when all predictors are at their reference or baseline values. It is statistically significant that the average life expectancy under these conditions is not zero.
+
+Among the predictors, social connections (avg_soc_con, Coefficient = 3.40, p = 0.022) were found to have a strong and significant positive association with life expectancy. A one-unit increase in the social connections score corresponds to a 3.40-year increase in life expectancy, emphasizing the substantial role of social factors in promoting longevity. In contrast, the relationship between adherence to a plant-based diet (avg_plant_diet, Coefficient = 2.07, p = 0.300) and life expectancy, while positive, was not statistically significant, providing limited evidence for its impact in this model.
+
+Similarly, sense of purpose (stress_purpose, Coefficient = 0.96, p = 0.791) exhibited a small, positive, but non-significant association with life expectancy, suggesting minimal influence in this context. Alcohol consumption (avg_alcfrq, Coefficient = -0.54, p = 0.602) and religiosity (avg_relig, Coefficient = -0.81, p = 0.689) showed weak, non-significant negative associations, while BMI (avg_bmi, Coefficient = -0.09, p = 0.905) displayed an even weaker negative association, indicating minimal or no impact on life expectancy in this analysis.
+
+The model demonstrated a reasonable fit, with a dispersion parameter of 0.9389, indicating minimal unexplained variability in the residuals amd that the model accounts for the majority of the variation in life expectancy among the included predictors.
+
+```{r lm.plotting, , echo=FALSE, message=FALSE, fig.align="center", fig.height=3}
+# Fit the linear model
+model <- lm(
+  life_expectancy ~ avg_plant_diet + avg_soc_con + stress_purpose + avg_alcfrq + avg_relig + avg_bmi,
+  data = final_data
+)
+
+# Compute robust standard errors
+library(sandwich)
+library(lmtest)
+robust_se <- vcovHC(model, type = "HC1")  # Robust errors
+conf_intervals <- coefci(model, vcov. = robust_se, level = 0.95)
+
+# Extract coefficients
+coefs <- coef(model)
+
+# Create a tidy dataframe
+tidy_model <- data.frame(
+  term = names(coefs),
+  estimate = coefs,
+  conf.low = conf_intervals[, 1],  # Lower bound
+  conf.high = conf_intervals[, 2] # Upper bound
+)
+
+# Rename terms for clarity and exclude the intercept
+tidy_model <- tidy_model %>%
+  filter(term != "(Intercept)") %>% # Exclude intercept
+  mutate(term = case_when(
+    term == "avg_plant_diet" ~ "Plant-Based Diet",
+    term == "avg_soc_con" ~ "Social Connection",
+    term == "stress_purpose" ~ "Sense of Purpose",
+    term == "avg_alcfrq" ~ "Alcohol Consumption",
+    term == "avg_relig" ~ "Religiosity",
+    term == "avg_bmi" ~ "Body Mass Index (BMI)",
+    TRUE ~ term
+  )) %>%
+  mutate(significant = ifelse(conf.low > 0 | conf.high < 0, "Significant", "Not Significant"))
+
+# Plot
+ggplot(tidy_model, aes(y = reorder(term, estimate), x = estimate, color = significant)) +
+  geom_errorbar(aes(xmin = conf.low, xmax = conf.high), width = 0.2, color = custom_colors[2]) +
+  geom_point(size = 2, aes(color = significant)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = custom_colors[4]) +
+  scale_color_manual(values = c("Significant" = custom_colors[5], "Not Significant" = custom_colors[3])) +
+  labs(
+    x = "Estimates (95% CI)",
+    y = "Predictors of Life Expectancy",
+    title = "Figure 2: Predictor Effects on IV"
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.y = element_text(angle = 30, hjust = 1, size = 10),
+    legend.position = "none"
+  )
+```
+
+```{r stargazer.lm.table, echo=FALSE, results='asis', message=FALSE, fig.pos='H'}
+# robust_se <- sqrt(diag(vcovHC(model, type = "HC1")))  # Robust standard errors
+# 
+# # Generate the stargazer table
+# stargazer(
+#   model,  # Base linear model
+#   se = list(robust_se),  # Robust standard errors
+#   type = "latex",  # LaTeX output for use in PDF documents
+#   title = "Regression Results for Life Expectancy Model with Robust Standard Errors",
+#   dep.var.labels = "Life Expectancy",
+#   covariate.labels = c(
+#     "Plant-Based Diet",
+#     "Social Connection",
+#     "Sense of Purpose",
+#     "Alcohol Consumption",
+#     "Religiosity",
+#     "Body Mass Index (BMI)"
+#   ),
+#   omit = "Constant",  # Optionally exclude the intercept
+#   omit.stat = c("f", "ser"),  # Omitting F-statistic and standard error
+#   no.space = TRUE,  # Compact table format
+#   add.lines = list(
+#     c("Observations", nrow(final_data)),
+#     c("Robust Standard Errors", "Yes")
+#   ),
+#   star.cutoffs = c(0.05, 0.01, 0.001),  # Significance stars
+#   notes = "Note: Standard errors are computed using HC1 robust correction."
+# )
+```
+
+```{r alt, echo=FALSE, results='asis', message=FALSE, fig.pos='H'}
+robust_se <- sqrt(diag(vcovHC(model, type = "HC1")))
+tidy_model <- tidy(model) %>%
+  mutate(
+    std.error = robust_se,
+    stars = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01 ~ "**",
+      p.value < 0.05 ~ "*",
+      TRUE ~ ""
+    ),
+    term = gsub("_", "\\\\_", term) # Escape underscores for LaTeX
+  )
+
+# Generate the table
+tidy_model %>%
+  mutate(
+    estimate = round(estimate, 3),
+    std.error = round(std.error, 3),
+    statistic = round(statistic, 3),
+    p.value = round(p.value, 3)
+  ) %>%
+  select(term, estimate, std.error, statistic, p.value, stars) %>%
+  rename(
+    Predictor = term,
+    Estimate = estimate,
+    "Std. Error" = std.error,
+    "t-Statistic" = statistic,
+    "P-Value" = p.value,
+    "Signif." = stars
+  ) %>%
+  kable("latex", booktabs = TRUE, escape = FALSE, align = "c",
+        caption = "Regression Results for Life Expectancy Model with Robust Standard Errors") %>%
+  kable_styling(latex_options = c("striped", "hold_position"), font_size = 12) %>%  # Increased font size
+  add_header_above(c(" " = 1, "Coefficients" = 5)) %>%
+  kable_styling(full_width = FALSE, position = "center") # Align with text width
+
+```
+Note: Significance stars are based on p-values. Robust standard errors are computed using HC1 correction
+
+\FloatBarrier
+
+## Interactions
+
+#### Interaction: alcohol consumption - BMI
+
+The interaction model shows a significant effect of alcohol consumption (avg_alcfrq) and BMI (avg_bmi) on life expectancy (p < 0.001), with a positive interaction coefficient (3.739). This indicates that the impact of alcohol consumption on life expectancy depends on BMI. Specifically, higher alcohol consumption decreases life expectancy for individuals with low BMI, has minimal effect for medium BMI, and is associated with increased life expectancy for high BMI. The crossing point around moderate alcohol consumption (~3.75) further highlights this variability.
+
+Confidence intervals suggest significant differences between BMI groups, particularly at the extremes of alcohol use, while predictions near the midpoint are more stable. These results emphasize the context-dependent relationship between alcohol and life expectancy, suggesting that public health recommendations should account for BMI. The findings also highlight potential non-linear dynamics, warranting further exploration to refine predictive accuracy.
+
+```{r interaction.alcfrq.bmi, echo=FALSE, message=FALSE, warning=FALSE, fig.align="center", fig.height=7}
+# Interaction model for alcohol consumption and BMI with robust SEs
+interaction_model <- lm(
+  life_expectancy ~ avg_alcfrq * avg_bmi + stress_purpose + avg_soc_con + avg_relig + avg_plant_diet,
+  data = final_data
+)
+
+# Generate predictions and confidence intervals
+new_data <- expand.grid(
+  avg_bmi = seq(min(final_data$avg_bmi, na.rm = TRUE), max(final_data$avg_bmi, na.rm = TRUE), length.out = 100),
+  avg_alcfrq = c(min(final_data$avg_alcfrq, na.rm = TRUE), mean(final_data$avg_alcfrq, na.rm = TRUE), max(final_data$avg_alcfrq, na.rm = TRUE)),
+  stress_purpose = mean(final_data$stress_purpose, na.rm = TRUE),
+  avg_soc_con = mean(final_data$avg_soc_con, na.rm = TRUE),
+  avg_relig = mean(final_data$avg_relig, na.rm = TRUE),
+  avg_plant_diet = mean(final_data$avg_plant_diet, na.rm = TRUE)
+)
+
+# Predict fitted values and standard errors
+X <- model.matrix(~ avg_alcfrq * avg_bmi + stress_purpose + avg_soc_con + avg_relig + avg_plant_diet, data = new_data)
+cov_matrix <- vcovHC(interaction_model, type = "HC1")
+new_data$fit <- X %*% coef(interaction_model)
+new_data$se <- sqrt(rowSums((X %*% cov_matrix) * X))
+new_data$lwr <- new_data$fit - 1.96 * new_data$se
+new_data$upr <- new_data$fit + 1.96 * new_data$se
+
+# Simplify BMI categories for plotting
+new_data$bmi_category <- cut(
+  new_data$avg_bmi,
+  breaks = c(24, 25.75, 26.5, 27.5),
+  labels = c("Low BMI", "Medium BMI", "High BMI"),
+  include.lowest = TRUE
+)
+
+# Custom colors
+custom_colors <- c("#8fd7d7", "#00b0be", "#ff8ca1", "#f45f74", 
+                   "#bdd373", "#98c127", "#fffaf3", "#ffb255")
+
+# Plot interaction effect
+ggplot(new_data, aes(x = avg_alcfrq, y = fit, color = bmi_category)) +
+  geom_line(size = 1) +
+  geom_ribbon(aes(ymin = lwr, ymax = upr, fill = bmi_category), alpha = 0.2) +
+  scale_color_manual(
+    values = c(
+      "Low BMI" = custom_colors[5],
+      "Medium BMI" = custom_colors[2],
+      "High BMI" = custom_colors[3]
+    )
+  ) +
+  scale_fill_manual(
+    values = c(
+      "Low BMI" = custom_colors[5],
+      "Medium BMI" = custom_colors[2],
+      "High BMI" = custom_colors[3]
+    )
+  ) +
+  labs(
+    title = "Figure 3: Interaction Effect of Alcohol Consumption and BMI on Life Expectancy",
+    x = "Alcohol Consumption",
+    y = "Predicted Life Expectancy",
+    color = "BMI Category",
+    fill = "BMI Category"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.background = element_rect(fill = "white", color = NA), # Background color
+    plot.background = element_rect(fill = "white", color = NA), # Outer background
+    panel.grid.major = element_line(color = custom_colors[8]), # Major gridlines
+    panel.grid.minor = element_line(color = custom_colors[8], linetype = "dotted") # Minor gridlines
+  )
+#summary(interaction_model)
+```
+
+Social connections had a significant positive impact on life expectancy, while other predictors showed weak or non-significant associations. The interaction model highlighted that the effect of alcohol consumption on life expectancy varies by BMI, emphasizing the need for context-specific public health recommendations.
+
+\newpage
+
+# Discussion on results
+
+The final model was a linear regression fitted using the `lm` function with robust standard errors (HC1 adjustment) to ensure reliable inference while addressing potential heteroskedasticity. These adjustments allowed the analysis to accurately estimate the relationships between life expectancy and its predictors, which included plant-based diet adherence, social connections, sense of purpose, alcohol consumption frequency, religiosity, and BMI.
+
+The results demonstrated a significant positive association between social connections (avg_soc_con, Coefficient = 3.40, p = 0.022) and life expectancy, highlighting the critical role of social factors in promoting longevity. Other predictors, such as plant-based diet adherence, sense of purpose, alcohol consumption frequency, religiosity, and BMI, did not show statistically significant associations, suggesting weaker or less stable relationships within this dataset.
+
+Additionally, the interaction model revealed a significant interaction between alcohol consumption (avg_alcfrq) and BMI (avg_bmi) (p \< 0.001). This finding suggests that the impact of alcohol consumption on life expectancy depends on BMI: higher BMI appears to mitigate the negative effects of alcohol consumption, with the relationship potentially reversing at higher BMI levels. The crossing of predicted lines in the interaction plot at moderate alcohol consumption (\~3.75) underscores the complexity of these effects. These insights emphasize the importance of considering BMI when evaluating the health implications of alcohol use.
+
+Overall, the use of robust standard errors, along with the modeling of interactions, ensured the robustness of the analysis and provided meaningful insights into the determinants of life expectancy.
+
+This study investigated the determinants of life expectancy using a linear regression model with robust standard errors, incorporating key lifestyle, social, and psychological predictors. The analysis highlighted the significant positive impact of social connections on life expectancy, emphasizing the critical role of social factors in promoting longer, healthier lives. The interaction analysis further revealed that the impact of alcohol consumption on life expectancy varies with BMI, where higher BMI mitigates the negative effects of alcohol use and even reverses the association at higher levels. Other predictors, such as adherence to a plant-based diet, sense of purpose, religiosity, and BMI, did not exhibit statistically significant direct associations, reflecting weaker or context-specific effects.
+
+Model refinements, including the exclusion of avg_fam_sup due to multicollinearity and the creation of the composite variable "stress_purpose," ensured a parsimonious and interpretable framework. The use of robust standard errors improved the reliability of the findings, particularly in the context of a small, cross-national dataset with potential heteroskedasticity concerns.
+
+Ultimately, this study underscores the importance of addressing social and lifestyle factors to improve life expectancy, with a particular focus on fostering social connections and understanding the nuanced interplay between alcohol consumption and BMI. These findings highlight the need for future research to explore interaction effects further, as well as longitudinal studies to capture the dynamic and collective influences of these factors on longevity.
+
+## Limitations
+
+This study has several limitations that should be acknowledged. First, the relatively small sample size of 23 countries limits the statistical power and generalizability of the findings. With such a small number of observations, there is an increased risk of Type II errors, meaning that smaller or subtler effects may go undetected. Additionally, the cross-sectional design of the study precludes the establishment of causality, as the relationships observed reflect a single point in time rather than dynamic changes over time. While robust standard errors were used to address potential heteroskedasticity, and adjustments were made for potential multicollinearity and clustering, these measures may not fully account for the heterogeneity in how life expectancy determinants vary across cultural and economic contexts. Furthermore, the reliance on self-reported measures for variables such as diet, alcohol consumption, and social connections introduces the possibility of response bias, which may affect the precision of the results. These limitations underscore the need for caution in interpreting the findings and point to the importance of future research utilizing larger, longitudinal datasets to validate and expand upon these results.
+
+\newpage
+
+\nocite{*}
+\begingroup
+\fontsize{11}{10.8}\selectfont
+\bibliography{C:/Users/Steven/OneDrive/2_YEAR_1_SEMESTER/SA2_statistical_analysis_2/BLUE_ZONES/sources_v2}
+\bibliographystyle{plain}
+\endgroup
+
+\normalsize
+```{r references_note}
+#to get rid of automatic bibliography at the end - just dont write it in YAML header
+```
+\newpage
+
+# Appendix
+
+## Model diagnostics
+
+The Breusch-Pagan test (BP = 8.72, df = 6, p = 0.18) showed no evidence of heteroscedasticity, confirming the assumption of constant variance. The residuals vs. fitted plot and Q-Q plot indicated random distribution and sufficient normality, despite minor tail deviations typical for small samples (n = 23). High correlation between avg_fam_sup and avg_bmi (r = 0.989) resulted in the removal of avg_fam_sup, and strong correlation between avg_stress_red and avg_sen_pur (r = 0.854) led to the creation of the composite variable "stress_purpose" to enhance model stability.
+
+Figure 4: Linear Model Assumption Tests Plots
+
+```{r Tests_plots, echo=FALSE, warning=FALSE, message=FALSE}
+#, fig.align="center"
+
+# Create a data frame for residuals vs fitted values
+residuals_data <- data.frame(
+  Fitted = fitted(model),
+  Residuals = resid(model)
+)
+
+# Residuals vs Fitted Plot
+p1 <- ggplot(residuals_data, aes(x = Fitted, y = Residuals)) +
+  geom_point(color = custom_colors[2], size = 2) +
+  geom_hline(yintercept = 0, color = custom_colors[4], linetype = "dashed") +
+  labs(title = "Homoscedasticity Check", x = "Fitted Values", y = "Residuals") +
+  theme_minimal() +
+  theme(panel.grid.major = element_line(color = custom_colors[8], linetype = "dotted"),
+        plot.background = element_rect(fill = "white", color = NA))
+
+# Q-Q Plot
+p2 <- ggplot(residuals_data, aes(sample = Residuals)) +
+  stat_qq(color = custom_colors[2], size = 2) +
+  stat_qq_line(color = custom_colors[4], linetype = "dashed") +
+  labs(title = "Q-Q Plot of Residuals", x = "Theoretical Quantiles", y = "Sample Quantiles") +
+  theme_minimal() +
+  theme(panel.grid.major = element_line(color = custom_colors[8], linetype = "dotted"),
+        plot.background = element_rect(fill = "white", color = NA))
+
+# Combine plots into facets
+combined_plot <- p1 + p2 +
+  plot_layout(ncol = 2) # Display plots side by side
+
+# Print the combined plot
+print(combined_plot)
+```
+
+```{r Multicollinearity, echo=FALSE, warning=FALSE, message=FALSE}
+# VIF for multicollinearity check
+#vif(model)
+
+# check for correlations between variables
+#cor(final_data %>% select(avg_fam_sup, avg_bmi, starts_with("avg_")), use = "complete.obs")
+```
+\newpage
